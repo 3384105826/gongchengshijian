@@ -1,0 +1,5 @@
+names:
+- loutong
+nc: 1
+train: E:\ultralytics-main\电路板漏铜件检测\loutongtxt_滑动裁剪1280 overlap=0.2/images/train
+val: E:\ultralytics-main\电路板漏铜件检测\loutongtxt_滑动裁剪1280 overlap=0.2/images/val
