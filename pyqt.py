@@ -7,7 +7,7 @@ import pymysql
 from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
                              QPushButton, QListWidget, QComboBox, QSpinBox, QProgressBar,
                              QFileDialog, QLineEdit, QMessageBox, QTableWidget, QTableWidgetItem,
-                             QTabWidget, QGridLayout, QGroupBox, QSplitter)
+                             QTabWidget, QGridLayout, QGroupBox, QSplitter, QTextEdit)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5 import QtGui
 from ultralytics import YOLO  # 导入YOLOv8库
@@ -1117,10 +1117,64 @@ class YoloV8Interface(QWidget):
         
         visual_layout.addWidget(stats_group)
         
+        # 数据报告标签页
+        report_tab = QWidget()
+        report_layout = QVBoxLayout(report_tab)
+        report_layout.setSpacing(20)
+        report_layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 报告标题
+        report_layout.addWidget(QLabel("数据报告生成"))
+        
+        # 批次选择区域
+        batch_layout = QHBoxLayout()
+        batch_layout.setSpacing(15)
+        batch_layout.addWidget(QLabel("选择检测批次："))
+        
+        self.cb_batch = QComboBox()
+        self.cb_batch.setMinimumWidth(300)
+        batch_layout.addWidget(self.cb_batch)
+        
+        self.btn_refresh_batch = QPushButton("刷新批次")
+        self.btn_refresh_batch.clicked.connect(self.refresh_batches)
+        batch_layout.addWidget(self.btn_refresh_batch)
+        
+        self.btn_generate_report = QPushButton("生成报告")
+        self.btn_generate_report.setStyleSheet("background-color: #2196F3;")
+        self.btn_generate_report.clicked.connect(self.generate_report)
+        batch_layout.addWidget(self.btn_generate_report)
+        
+        self.btn_export_report = QPushButton("导出报告")
+        self.btn_export_report.setStyleSheet("background-color: #FF9800;")
+        self.btn_export_report.clicked.connect(self.export_report)
+        self.btn_export_report.setEnabled(False)
+        batch_layout.addWidget(self.btn_export_report)
+        
+        report_layout.addLayout(batch_layout)
+        
+        # 报告预览区域
+        report_group = QGroupBox("报告预览")
+        report_group_layout = QVBoxLayout(report_group)
+        
+        self.report_text = QTextEdit()
+        self.report_text.setReadOnly(True)
+        self.report_text.setStyleSheet("""
+            QTextEdit {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-family: 'SimHei', Arial, sans-serif;
+                font-size: 13px;
+            }
+        """)
+        report_group_layout.addWidget(self.report_text)
+        report_layout.addWidget(report_group)
+        
         # 添加标签页
         self.tab_widget.addTab(detect_tab, "检测功能")
         self.tab_widget.addTab(data_tab, "数据查看")
         self.tab_widget.addTab(visual_tab, "数据可视化")
+        self.tab_widget.addTab(report_tab, "数据报告")
 
         # 整体布局
         main_layout = QVBoxLayout()
@@ -1132,6 +1186,7 @@ class YoloV8Interface(QWidget):
         # 初始化数据
         self.refresh_data()
         self.refresh_visualization()
+        self.refresh_batches()
 
     # ---------- 新增：模型路径选择方法 ----------
     def choose_model(self):
@@ -1686,6 +1741,393 @@ class YoloV8Interface(QWidget):
         self.defect_dist_ax.set_ylabel('Y坐标')
         self.defect_dist_canvas.draw()
 
+    # ---------- 数据报告生成方法 ----------
+    def refresh_batches(self):
+        """刷新检测批次列表"""
+        if not self.db_manager:
+            QMessageBox.warning(self, "提示", "数据库未连接")
+            return
+        
+        # 获取所有检测结果
+        results, msg = self.db_manager.get_all_results()
+        if results is None:
+            QMessageBox.warning(self, "错误", f"获取数据失败：{msg}")
+            return
+        
+        # 清空下拉框
+        self.cb_batch.clear()
+        
+        # 添加批次选项（按检测时间分组）
+        batches = {}
+        for result in results:
+            detect_time = result['detection_time']
+            # 按日期分组
+            date_str = str(detect_time)[:10]  # 获取日期部分
+            if date_str not in batches:
+                batches[date_str] = []
+            batches[date_str].append(result)
+        
+        # 添加到下拉框
+        for date in sorted(batches.keys(), reverse=True):
+            count = len(batches[date])
+            self.cb_batch.addItem(f"{date} - {count}个检测结果", batches[date])
+        
+        if self.cb_batch.count() == 0:
+            self.cb_batch.addItem("暂无检测批次", None)
+    
+    def generate_report(self):
+        """生成检测报告"""
+        # 获取选中的批次
+        batch_data = self.cb_batch.currentData()
+        if batch_data is None:
+            QMessageBox.warning(self, "提示", "请先选择一个检测批次")
+            return
+        
+        # 生成报告内容
+        report_content = self.create_report_content(batch_data)
+        
+        # 显示报告
+        self.report_text.setPlainText(report_content)
+        self.btn_export_report.setEnabled(True)
+        QMessageBox.information(self, "提示", "报告生成成功！")
+    
+    def create_report_content(self, batch_data):
+        """创建报告内容"""
+        report_lines = []
+        
+        # 报告标题
+        report_lines.append("=" * 60)
+        report_lines.append("           电路板漏铜检测报告")
+        report_lines.append("=" * 60)
+        report_lines.append("")
+        
+        # 报告基本信息
+        report_lines.append("【报告信息】")
+        report_lines.append(f"  生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append(f"  检测批次: {self.cb_batch.currentText()}")
+        report_lines.append(f"  检测图像数: {len(batch_data)}")
+        report_lines.append("")
+        
+        # 统计分析
+        report_lines.append("【统计分析】")
+        
+        total_defects = 0
+        pass_count = 0
+        fail_count = 0
+        all_details = []
+        
+        for result in batch_data:
+            total_defects += result['total_defects']
+            
+            # 获取缺陷详情
+            details, _ = self.db_manager.get_defect_details(result['id'])
+            if details:
+                all_details.extend(details)
+                # 判断是否合格（高置信度缺陷<5）
+                high_conf = [d for d in details if d['confidence'] > 0.8]
+                if len(high_conf) < 5:
+                    pass_count += 1
+                else:
+                    fail_count += 1
+            else:
+                pass_count += 1
+        
+        yield_rate = (pass_count / len(batch_data)) * 100 if len(batch_data) > 0 else 0
+        avg_defects = total_defects / len(batch_data) if len(batch_data) > 0 else 0
+        
+        report_lines.append(f"  总缺陷数: {total_defects}")
+        report_lines.append(f"  平均缺陷数: {avg_defects:.2f}")
+        report_lines.append(f"  合格品数: {pass_count}")
+        report_lines.append(f"  不合格品数: {fail_count}")
+        report_lines.append(f"  良品率: {yield_rate:.2f}%")
+        report_lines.append("")
+        
+        # 缺陷分析
+        report_lines.append("【缺陷分析】")
+        
+        if total_defects == 0:
+            report_lines.append("  该批次未检测到任何缺陷，产品质量优秀！")
+        else:
+            # 置信度分布
+            confidence_levels = [0, 0, 0, 0]  # <0.5, 0.5-0.7, 0.7-0.9, >=0.9
+            for detail in all_details:
+                conf = detail['confidence']
+                if conf < 0.5:
+                    confidence_levels[0] += 1
+                elif conf < 0.7:
+                    confidence_levels[1] += 1
+                elif conf < 0.9:
+                    confidence_levels[2] += 1
+                else:
+                    confidence_levels[3] += 1
+            
+            report_lines.append("  缺陷置信度分布:")
+            report_lines.append(f"    低置信度(<0.5): {confidence_levels[0]}个")
+            report_lines.append(f"    中低置信度(0.5-0.7): {confidence_levels[1]}个")
+            report_lines.append(f"    中高置信度(0.7-0.9): {confidence_levels[2]}个")
+            report_lines.append(f"    高置信度(>=0.9): {confidence_levels[3]}个")
+            report_lines.append("")
+            
+            # 位置分布分析
+            if all_details:
+                x_coords = [d['center_x'] for d in all_details]
+                y_coords = [d['center_y'] for d in all_details]
+                avg_x = sum(x_coords) / len(x_coords)
+                avg_y = sum(y_coords) / len(y_coords)
+                
+                report_lines.append("  缺陷位置分布:")
+                report_lines.append(f"    平均X坐标: {avg_x:.2f}")
+                report_lines.append(f"    平均Y坐标: {avg_y:.2f}")
+                report_lines.append("")
+        
+        # 检测结果列表
+        report_lines.append("【检测结果详情】")
+        report_lines.append("-" * 50)
+        
+        for i, result in enumerate(batch_data, 1):
+            report_lines.append(f"  [{i}] 图像名称: {result['image_name']}")
+            report_lines.append(f"      检测时间: {result['detection_time']}")
+            report_lines.append(f"      缺陷数量: {result['total_defects']}")
+            report_lines.append(f"      窗口大小: {result['window_size']}")
+            report_lines.append(f"      输出路径: {result['output_path']}")
+            
+            # 获取缺陷详情
+            details, _ = self.db_manager.get_defect_details(result['id'])
+            if details:
+                report_lines.append(f"      缺陷详情:")
+                for j, detail in enumerate(details, 1):
+                    report_lines.append(f"        缺陷{j}: 置信度={detail['confidence']:.3f}, "
+                                      f"位置=({detail['center_x']:.1f}, {detail['center_y']:.1f})")
+            report_lines.append("")
+        
+        # 结论与建议
+        report_lines.append("【结论与建议】")
+        report_lines.append("-" * 50)
+        
+        if fail_count == 0:
+            report_lines.append("  ✓ 该批次所有产品均合格！")
+            report_lines.append("  ✓ 产品质量稳定，建议保持现有生产工艺。")
+        elif fail_count <= len(batch_data) * 0.1:
+            report_lines.append(f"  ✓ 该批次合格率为 {yield_rate:.1f}%，整体质量良好。")
+            report_lines.append(f"  ! 有 {fail_count} 个产品不合格，建议对不合格品进行复检。")
+            report_lines.append("  ✓ 建议关注高置信度缺陷的位置分布，优化生产工艺。")
+        elif fail_count <= len(batch_data) * 0.3:
+            report_lines.append(f"  ! 该批次合格率为 {yield_rate:.1f}%，存在一定质量问题。")
+            report_lines.append(f"  ! 有 {fail_count} 个产品不合格，建议加强质量检测。")
+            report_lines.append("  ! 建议分析缺陷集中区域，排查生产设备问题。")
+        else:
+            report_lines.append(f"  ✗ 该批次合格率为 {yield_rate:.1f}%，存在严重质量问题！")
+            report_lines.append(f"  ✗ 有 {fail_count} 个产品不合格，需要立即采取措施。")
+            report_lines.append("  ✗ 建议暂停生产，全面检查生产流程和设备。")
+            report_lines.append("  ✗ 对已生产产品进行全面复检。")
+        
+        report_lines.append("")
+        report_lines.append("=" * 60)
+        report_lines.append("              报告结束")
+        report_lines.append("=" * 60)
+        
+        return "\n".join(report_lines)
+    
+    def export_report(self):
+        """导出报告为文件"""
+        report_content = self.report_text.toPlainText()
+        if not report_content:
+            QMessageBox.warning(self, "提示", "请先生成报告")
+            return
+        
+        # 选择保存路径
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存报告", "", "文本文件 (*.txt);;HTML文件 (*.html)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            if file_path.endswith('.html'):
+                # 导出为HTML格式
+                html_content = self.create_html_report(report_content)
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+            else:
+                # 导出为文本格式
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(report_content)
+            
+            QMessageBox.information(self, "导出成功", f"报告已保存到:\n{file_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", f"保存文件时出错：{str(e)}")
+    
+    def create_html_report(self, text_content):
+        """将文本报告转换为HTML格式"""
+        html_template = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电路板漏铜检测报告</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', 'SimHei', Arial, sans-serif;
+            margin: 40px;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+        .report-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .title {
+            text-align: center;
+            color: #2c3e50;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+        }
+        .title h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .section {
+            margin-bottom: 25px;
+        }
+        .section-title {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        .subsection {
+            margin-left: 20px;
+            margin-bottom: 10px;
+        }
+        .stats-box {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .stat-item {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+        }
+        .conclusion {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 0 5px 5px 0;
+        }
+        .success { color: #28a745; }
+        .warning { color: #ffc107; }
+        .danger { color: #dc3545; }
+        .info { color: #17a2b8; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        <div class="title">
+            <h1>电路板漏铜检测报告</h1>
+        </div>
+        
+        {content}
+        
+        <div class="footer">
+            报告生成时间: {timestamp}<br>
+            电路板漏铜检测系统
+        </div>
+    </div>
+</body>
+</html>"""
+        
+        # 解析文本内容并转换为HTML
+        lines = text_content.split('\n')
+        html_sections = []
+        current_section = ""
+        in_table = False
+        
+        for line in lines:
+            if line.startswith("=" * 50):
+                continue
+            elif line.startswith("【") and line.endswith("】"):
+                if current_section:
+                    html_sections.append(current_section)
+                section_title = line[1:-1]
+                current_section = f'<div class="section"><div class="section-title">{section_title}</div><div class="section-content">'
+            elif line.startswith("  ✓"):
+                current_section += f'<p class="success">{line.strip()}</p>'
+            elif line.startswith("  !"):
+                current_section += f'<p class="warning">{line.strip()}</p>'
+            elif line.startswith("  ✗"):
+                current_section += f'<p class="danger">{line.strip()}</p>'
+            elif line.startswith("  [") and "]" in line:
+                current_section += f'<div class="subsection"><strong>{line.strip()}</strong></div>'
+            elif line.startswith("      "):
+                current_section += f'<div class="subsection" style="margin-left: 40px;">{line.strip()}</div>'
+            elif line.startswith("    "):
+                current_section += f'<div class="subsection">{line.strip()}</div>'
+            elif line.startswith("  "):
+                current_section += f'<p>{line.strip()}</p>'
+            elif line.strip() == "":
+                current_section += '<br>'
+        
+        if current_section:
+            current_section += '</div></div>'
+            html_sections.append(current_section)
+        
+        # 特殊处理结论部分
+        html_content = "\n".join(html_sections)
+        
+        # 替换占位符
+        html_content = html_template.format(
+            content=html_content,
+            timestamp=time.strftime('%Y-%m-%d %H:%M:%S')
+        )
+        
+        return html_content
+    
     def logout(self):
         """退出登录"""
         reply = QMessageBox.question(self, "确认退出", "确定要退出登录吗？",
