@@ -1792,63 +1792,77 @@ class YoloV8Interface(QWidget):
         QMessageBox.information(self, "提示", "报告生成成功！")
     
     def create_report_content(self, batch_data):
-        """创建报告内容"""
+        """创建报告内容 - 包含详细总结和数据结论"""
         report_lines = []
         
-        # 报告标题
-        report_lines.append("=" * 60)
-        report_lines.append("           电路板漏铜检测报告")
-        report_lines.append("=" * 60)
+        # ---------------------- 报告标题 ----------------------
+        report_lines.append("=" * 70)
+        report_lines.append("              电路板漏铜检测报告")
+        report_lines.append("              Circuit Board Copper Leakage Inspection Report")
+        report_lines.append("=" * 70)
         report_lines.append("")
         
-        # 报告基本信息
-        report_lines.append("【报告信息】")
-        report_lines.append(f"  生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        report_lines.append(f"  检测批次: {self.cb_batch.currentText()}")
-        report_lines.append(f"  检测图像数: {len(batch_data)}")
-        report_lines.append("")
+        # ---------------------- 执行摘要 ----------------------
+        report_lines.append("【执行摘要】")
+        report_lines.append("-" * 60)
         
-        # 统计分析
-        report_lines.append("【统计分析】")
+        # 计算关键指标
+        total_images = len(batch_data)
+        total_defects = sum(result['total_defects'] for result in batch_data)
+        avg_defects = total_defects / total_images if total_images > 0 else 0
         
-        total_defects = 0
         pass_count = 0
         fail_count = 0
         all_details = []
         
         for result in batch_data:
-            total_defects += result['total_defects']
-            
-            # 获取缺陷详情
             details, _ = self.db_manager.get_defect_details(result['id'])
             if details:
                 all_details.extend(details)
-                # 判断是否合格（高置信度缺陷<5）
                 high_conf = [d for d in details if d['confidence'] > 0.8]
-                if len(high_conf) < 5:
-                    pass_count += 1
-                else:
-                    fail_count += 1
+                pass_count += 1 if len(high_conf) < 5 else 0
+                fail_count += 1 if len(high_conf) >= 5 else 0
             else:
                 pass_count += 1
         
-        yield_rate = (pass_count / len(batch_data)) * 100 if len(batch_data) > 0 else 0
-        avg_defects = total_defects / len(batch_data) if len(batch_data) > 0 else 0
+        yield_rate = (pass_count / total_images) * 100 if total_images > 0 else 0
         
-        report_lines.append(f"  总缺陷数: {total_defects}")
-        report_lines.append(f"  平均缺陷数: {avg_defects:.2f}")
-        report_lines.append(f"  合格品数: {pass_count}")
-        report_lines.append(f"  不合格品数: {fail_count}")
-        report_lines.append(f"  良品率: {yield_rate:.2f}%")
-        report_lines.append("")
-        
-        # 缺陷分析
-        report_lines.append("【缺陷分析】")
-        
-        if total_defects == 0:
-            report_lines.append("  该批次未检测到任何缺陷，产品质量优秀！")
+        # 评估等级
+        if yield_rate == 100:
+            grade = "优秀"
+            grade_color = "✓✓✓"
+        elif yield_rate >= 90:
+            grade = "良好"
+            grade_color = "✓✓"
+        elif yield_rate >= 70:
+            grade = "合格"
+            grade_color = "✓"
         else:
-            # 置信度分布
+            grade = "不合格"
+            grade_color = "✗"
+        
+        report_lines.append(f"  检测批次: {self.cb_batch.currentText()}")
+        report_lines.append(f"  报告时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append(f"")
+        report_lines.append(f"  【核心指标汇总】")
+        report_lines.append(f"    ├── 检测图像总数: {total_images} 张")
+        report_lines.append(f"    ├── 检出缺陷总数: {total_defects} 个")
+        report_lines.append(f"    ├── 平均缺陷数: {avg_defects:.2f} 个/张")
+        report_lines.append(f"    ├── 合格品数量: {pass_count} 张")
+        report_lines.append(f"    ├── 不合格品数量: {fail_count} 张")
+        report_lines.append(f"    └── 良品率: {yield_rate:.2f}%")
+        report_lines.append(f"")
+        report_lines.append(f"  【综合评估】")
+        report_lines.append(f"    质量等级: {grade_color} {grade}")
+        report_lines.append(f"")
+        
+        # ---------------------- 详细数据分析 ----------------------
+        report_lines.append("【详细数据分析】")
+        report_lines.append("-" * 60)
+        
+        # 1. 缺陷置信度分布分析
+        report_lines.append("  1. 缺陷置信度分布")
+        if all_details:
             confidence_levels = [0, 0, 0, 0]  # <0.5, 0.5-0.7, 0.7-0.9, >=0.9
             for detail in all_details:
                 conf = detail['confidence']
@@ -1861,70 +1875,195 @@ class YoloV8Interface(QWidget):
                 else:
                     confidence_levels[3] += 1
             
-            report_lines.append("  缺陷置信度分布:")
-            report_lines.append(f"    低置信度(<0.5): {confidence_levels[0]}个")
-            report_lines.append(f"    中低置信度(0.5-0.7): {confidence_levels[1]}个")
-            report_lines.append(f"    中高置信度(0.7-0.9): {confidence_levels[2]}个")
-            report_lines.append(f"    高置信度(>=0.9): {confidence_levels[3]}个")
-            report_lines.append("")
+            total_conf = sum(confidence_levels)
+            report_lines.append(f"    低置信度(<0.5): {confidence_levels[0]}个 ({(confidence_levels[0]/total_conf*100):.1f}%) - 可能为误检")
+            report_lines.append(f"    中低置信度(0.5-0.7): {confidence_levels[1]}个 ({(confidence_levels[1]/total_conf*100):.1f}%) - 需要人工复核")
+            report_lines.append(f"    中高置信度(0.7-0.9): {confidence_levels[2]}个 ({(confidence_levels[2]/total_conf*100):.1f}%) - 较可靠")
+            report_lines.append(f"    高置信度(>=0.9): {confidence_levels[3]}个 ({(confidence_levels[3]/total_conf*100):.1f}%) - 高度可靠")
             
-            # 位置分布分析
+            # 置信度分析结论
+            high_conf_ratio = (confidence_levels[2] + confidence_levels[3]) / total_conf * 100
+            if high_conf_ratio >= 80:
+                report_lines.append(f"    ✓ 高置信度缺陷占比 {high_conf_ratio:.1f}%，检测结果可靠性高")
+            elif high_conf_ratio >= 50:
+                report_lines.append(f"    ! 高置信度缺陷占比 {high_conf_ratio:.1f}%，建议加强复核")
+            else:
+                report_lines.append(f"    ✗ 高置信度缺陷占比 {high_conf_ratio:.1f}%，检测结果可靠性较低")
+        else:
+            report_lines.append(f"    无缺陷数据")
+        report_lines.append("")
+        
+        # 2. 缺陷位置分布分析
+        report_lines.append("  2. 缺陷位置分布")
+        if all_details:
+            x_coords = [d['center_x'] for d in all_details]
+            y_coords = [d['center_y'] for d in all_details]
+            
+            # 统计分布区域
+            x_min, x_max = min(x_coords), max(x_coords)
+            y_min, y_max = min(y_coords), max(y_coords)
+            avg_x = sum(x_coords) / len(x_coords)
+            avg_y = sum(y_coords) / len(y_coords)
+            
+            # 判断是否集中
+            x_range = x_max - x_min
+            y_range = y_max - y_min
+            
+            report_lines.append(f"    缺陷分布范围:")
+            report_lines.append(f"      X轴: [{x_min:.0f}, {x_max:.0f}]，范围: {x_range:.0f}")
+            report_lines.append(f"      Y轴: [{y_min:.0f}, {y_max:.0f}]，范围: {y_range:.0f}")
+            report_lines.append(f"      平均位置: ({avg_x:.0f}, {avg_y:.0f})")
+            
+            # 判断是否集中
+            max_dim = max(x_range, y_range)
+            if max_dim < 500:
+                report_lines.append(f"    ✗ 缺陷高度集中，可能存在系统性生产问题")
+            elif max_dim < 1000:
+                report_lines.append(f"    ! 缺陷有一定集中趋势，建议关注特定区域")
+            else:
+                report_lines.append(f"    ✓ 缺陷分布较为均匀，无明显集中区域")
+        else:
+            report_lines.append(f"    无缺陷数据")
+        report_lines.append("")
+        
+        # 3. 缺陷严重程度评估
+        report_lines.append("  3. 缺陷严重程度评估")
+        if all_details:
+            # 基于置信度和数量评估
+            critical_defects = [d for d in all_details if d['confidence'] >= 0.9]
+            major_defects = [d for d in all_details if d['confidence'] >= 0.7 and d['confidence'] < 0.9]
+            minor_defects = [d for d in all_details if d['confidence'] < 0.7]
+            
+            report_lines.append(f"    严重缺陷(置信度>=0.9): {len(critical_defects)}个 - 需要立即处理")
+            report_lines.append(f"    中等缺陷(置信度0.7-0.9): {len(major_defects)}个 - 需要关注")
+            report_lines.append(f"    轻微缺陷(置信度<0.7): {len(minor_defects)}个 - 可选择性处理")
+            
+            # 严重程度结论
+            if len(critical_defects) == 0:
+                report_lines.append(f"    ✓ 无严重缺陷，产品质量风险较低")
+            elif len(critical_defects) <= 3:
+                report_lines.append(f"    ! 存在少量严重缺陷，建议加强抽检")
+            else:
+                report_lines.append(f"    ✗ 严重缺陷较多，需要立即排查生产问题")
+        else:
+            report_lines.append(f"    无缺陷数据")
+        report_lines.append("")
+        
+        # ---------------------- 数据结论 ----------------------
+        report_lines.append("【数据结论】")
+        report_lines.append("-" * 60)
+        
+        # 结论1: 整体质量状况
+        report_lines.append("  1. 整体质量状况")
+        if yield_rate >= 95:
+            report_lines.append("     ✓ 该批次产品质量优秀，达到高质量标准")
+            report_lines.append("     ✓ 生产工艺稳定，建议保持现有状态")
+        elif yield_rate >= 85:
+            report_lines.append("     ✓ 该批次产品质量良好，符合质量要求")
+            report_lines.append("     ! 少量不合格品需要关注，建议分析原因")
+        elif yield_rate >= 70:
+            report_lines.append("     ! 该批次产品质量一般，存在改进空间")
+            report_lines.append("     ! 需要加强质量控制，减少缺陷产生")
+        else:
+            report_lines.append("     ✗ 该批次产品质量不合格，存在严重问题")
+            report_lines.append("     ✗ 需要立即采取措施，排查生产流程")
+        report_lines.append("")
+        
+        # 结论2: 缺陷特征分析
+        report_lines.append("  2. 缺陷特征分析")
+        if total_defects == 0:
+            report_lines.append("     ✓ 未检出任何缺陷，产品质量优异")
+        else:
+            # 判断缺陷类型
+            high_conf_count = sum(1 for d in all_details if d['confidence'] >= 0.8)
+            if high_conf_count == 0:
+                report_lines.append("     ! 检出的缺陷置信度较低，建议人工复核确认")
+            else:
+                report_lines.append(f"     ✓ 检出 {high_conf_count} 个高置信度缺陷，结果可靠")
+            
+            # 判断是否有集中趋势
             if all_details:
                 x_coords = [d['center_x'] for d in all_details]
                 y_coords = [d['center_y'] for d in all_details]
-                avg_x = sum(x_coords) / len(x_coords)
-                avg_y = sum(y_coords) / len(y_coords)
+                x_std = np.std(x_coords)
+                y_std = np.std(y_coords)
                 
-                report_lines.append("  缺陷位置分布:")
-                report_lines.append(f"    平均X坐标: {avg_x:.2f}")
-                report_lines.append(f"    平均Y坐标: {avg_y:.2f}")
-                report_lines.append("")
+                if x_std < 200 and y_std < 200:
+                    report_lines.append("     ✗ 缺陷呈现明显集中趋势，可能与特定工艺环节相关")
+                else:
+                    report_lines.append("     ✓ 缺陷分布较为均匀，无明显系统性问题")
+        report_lines.append("")
         
-        # 检测结果列表
+        # 结论3: 生产工艺评估
+        report_lines.append("  3. 生产工艺评估")
+        if fail_count == 0:
+            report_lines.append("     ✓ 生产工艺稳定可靠，产品一致性好")
+            report_lines.append("     ✓ 建议继续保持当前工艺参数")
+        elif fail_count <= total_images * 0.1:
+            report_lines.append("     ✓ 生产工艺基本稳定，偶发问题在可控范围内")
+            report_lines.append("     ! 建议对不合格品进行根因分析")
+        elif fail_count <= total_images * 0.3:
+            report_lines.append("     ! 生产工艺存在波动，需要优化调整")
+            report_lines.append("     ! 建议检查关键工艺参数，排查设备状态")
+        else:
+            report_lines.append("     ✗ 生产工艺不稳定，存在严重问题")
+            report_lines.append("     ✗ 建议暂停生产，全面检查生产流程和设备")
+        report_lines.append("")
+        
+        # ---------------------- 改进建议 ----------------------
+        report_lines.append("【改进建议】")
+        report_lines.append("-" * 60)
+        
+        # 建议优先级
+        if yield_rate >= 95:
+            report_lines.append("  [维持] 当前质量水平优秀，建议:")
+            report_lines.append("     1. 定期进行质量抽检，保持工艺稳定性")
+            report_lines.append("     2. 记录最佳工艺参数，作为标准参考")
+            report_lines.append("     3. 考虑进行工艺优化，进一步提升良品率")
+        elif yield_rate >= 85:
+            report_lines.append("  [优化] 当前质量良好，建议:")
+            report_lines.append("     1. 分析不合格品的共同特征，找出根因")
+            report_lines.append("     2. 加强关键工序的质量监控")
+            report_lines.append("     3. 对检出缺陷进行分类统计，制定改进措施")
+        elif yield_rate >= 70:
+            report_lines.append("  [改进] 当前质量需要提升，建议:")
+            report_lines.append("     1. 立即成立专项小组，分析质量问题")
+            report_lines.append("     2. 对生产设备进行全面检查和维护")
+            report_lines.append("     3. 加强员工培训，提高操作规范性")
+            report_lines.append("     4. 增加检测频次，及时发现问题")
+        else:
+            report_lines.append("  [紧急] 当前质量严重不达标，建议:")
+            report_lines.append("     1. 立即暂停相关生产线")
+            report_lines.append("     2. 全面检查生产设备和工艺参数")
+            report_lines.append("     3. 对已生产产品进行全面复检")
+            report_lines.append("     4. 制定并实施整改方案")
+            report_lines.append("     5. 整改完成后进行验证确认")
+        report_lines.append("")
+        
+        # ---------------------- 检测结果详情 ----------------------
         report_lines.append("【检测结果详情】")
-        report_lines.append("-" * 50)
+        report_lines.append("-" * 60)
         
         for i, result in enumerate(batch_data, 1):
-            report_lines.append(f"  [{i}] 图像名称: {result['image_name']}")
+            status = "✓ 合格" if result['total_defects'] == 0 else \
+                     "✓ 合格" if len([d for d in (self.db_manager.get_defect_details(result['id'])[0] or []) if d['confidence'] > 0.8]) < 5 else "✗ 不合格"
+            
+            report_lines.append(f"  [{i}] {result['image_name']}")
+            report_lines.append(f"      状态: {status}")
             report_lines.append(f"      检测时间: {result['detection_time']}")
             report_lines.append(f"      缺陷数量: {result['total_defects']}")
-            report_lines.append(f"      窗口大小: {result['window_size']}")
-            report_lines.append(f"      输出路径: {result['output_path']}")
             
-            # 获取缺陷详情
             details, _ = self.db_manager.get_defect_details(result['id'])
             if details:
-                report_lines.append(f"      缺陷详情:")
-                for j, detail in enumerate(details, 1):
-                    report_lines.append(f"        缺陷{j}: 置信度={detail['confidence']:.3f}, "
-                                      f"位置=({detail['center_x']:.1f}, {detail['center_y']:.1f})")
+                high_conf = [d for d in details if d['confidence'] > 0.8]
+                report_lines.append(f"      高置信度缺陷: {len(high_conf)}个")
             report_lines.append("")
         
-        # 结论与建议
-        report_lines.append("【结论与建议】")
-        report_lines.append("-" * 50)
-        
-        if fail_count == 0:
-            report_lines.append("  ✓ 该批次所有产品均合格！")
-            report_lines.append("  ✓ 产品质量稳定，建议保持现有生产工艺。")
-        elif fail_count <= len(batch_data) * 0.1:
-            report_lines.append(f"  ✓ 该批次合格率为 {yield_rate:.1f}%，整体质量良好。")
-            report_lines.append(f"  ! 有 {fail_count} 个产品不合格，建议对不合格品进行复检。")
-            report_lines.append("  ✓ 建议关注高置信度缺陷的位置分布，优化生产工艺。")
-        elif fail_count <= len(batch_data) * 0.3:
-            report_lines.append(f"  ! 该批次合格率为 {yield_rate:.1f}%，存在一定质量问题。")
-            report_lines.append(f"  ! 有 {fail_count} 个产品不合格，建议加强质量检测。")
-            report_lines.append("  ! 建议分析缺陷集中区域，排查生产设备问题。")
-        else:
-            report_lines.append(f"  ✗ 该批次合格率为 {yield_rate:.1f}%，存在严重质量问题！")
-            report_lines.append(f"  ✗ 有 {fail_count} 个产品不合格，需要立即采取措施。")
-            report_lines.append("  ✗ 建议暂停生产，全面检查生产流程和设备。")
-            report_lines.append("  ✗ 对已生产产品进行全面复检。")
-        
-        report_lines.append("")
-        report_lines.append("=" * 60)
+        # ---------------------- 报告结尾 ----------------------
+        report_lines.append("=" * 70)
         report_lines.append("              报告结束")
-        report_lines.append("=" * 60)
+        report_lines.append("              Report End")
+        report_lines.append("=" * 70)
         
         return "\n".join(report_lines)
     
