@@ -40,7 +40,7 @@ class DatabaseManager:
                 host="localhost",
                 port=3306,
                 user="root",
-                password="123456",
+                password="205427ch",
                 charset="utf8mb4",
                 cursorclass=pymysql.cursors.DictCursor
             )
