@@ -1120,55 +1120,71 @@ class YoloV8Interface(QWidget):
         # 数据报告标签页
         report_tab = QWidget()
         report_layout = QVBoxLayout(report_tab)
-        report_layout.setSpacing(20)
-        report_layout.setContentsMargins(20, 20, 20, 20)
-        
-        # 报告标题
-        report_layout.addWidget(QLabel("数据报告生成"))
+        report_layout.setSpacing(10)
+        report_layout.setContentsMargins(10, 10, 10, 10)
         
         # 批次选择区域
         batch_layout = QHBoxLayout()
-        batch_layout.setSpacing(15)
-        batch_layout.addWidget(QLabel("选择检测批次："))
+        batch_layout.setSpacing(10)
+        
+        batch_label = QLabel("选择检测批次：")
+        batch_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #333;")
+        batch_layout.addWidget(batch_label)
         
         self.cb_batch = QComboBox()
-        self.cb_batch.setMinimumWidth(300)
+        self.cb_batch.setMinimumWidth(250)
+        self.cb_batch.setStyleSheet("padding: 5px; border: 1px solid #ddd; border-radius: 4px;")
         batch_layout.addWidget(self.cb_batch)
         
         self.btn_refresh_batch = QPushButton("刷新批次")
+        self.btn_refresh_batch.setStyleSheet("background-color: #607D8B; padding: 8px 15px; border-radius: 4px;")
         self.btn_refresh_batch.clicked.connect(self.refresh_batches)
         batch_layout.addWidget(self.btn_refresh_batch)
         
         self.btn_generate_report = QPushButton("生成报告")
-        self.btn_generate_report.setStyleSheet("background-color: #2196F3;")
+        self.btn_generate_report.setStyleSheet("background-color: #2196F3; padding: 8px 20px; border-radius: 4px; font-weight: bold;")
         self.btn_generate_report.clicked.connect(self.generate_report)
         batch_layout.addWidget(self.btn_generate_report)
         
         self.btn_export_report = QPushButton("导出报告")
-        self.btn_export_report.setStyleSheet("background-color: #FF9800;")
+        self.btn_export_report.setStyleSheet("background-color: #FF9800; padding: 8px 20px; border-radius: 4px; font-weight: bold;")
         self.btn_export_report.clicked.connect(self.export_report)
         self.btn_export_report.setEnabled(False)
         batch_layout.addWidget(self.btn_export_report)
         
+        # 添加导出 Word 按钮
+        self.btn_export_word = QPushButton("导出 Word")
+        self.btn_export_word.setStyleSheet("background-color: #2196F3; padding: 8px 20px; border-radius: 4px; font-weight: bold;")
+        self.btn_export_word.clicked.connect(self.export_word)
+        self.btn_export_word.setEnabled(False)
+        batch_layout.addWidget(self.btn_export_word)
+        
+        batch_layout.addStretch()
         report_layout.addLayout(batch_layout)
         
         # 报告预览区域
         report_group = QGroupBox("报告预览")
+        report_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 14px; color: #333; border: 2px solid #4CAF50; border-radius: 5px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
         report_group_layout = QVBoxLayout(report_group)
+        report_group_layout.setContentsMargins(5, 20, 5, 5)
         
         self.report_text = QTextEdit()
         self.report_text.setReadOnly(True)
         self.report_text.setStyleSheet("""
             QTextEdit {
-                background-color: white;
+                background-color: #fafafa;
                 border: 1px solid #ddd;
                 border-radius: 4px;
-                font-family: 'SimHei', Arial, sans-serif;
-                font-size: 13px;
+                font-family: 'SimHei', 'Microsoft YaHei', Arial, sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+                padding: 15px;
             }
         """)
+        self.report_font_size = 14  # 初始字体大小
+        self.report_text.installEventFilter(self)  # 安装事件过滤器
         report_group_layout.addWidget(self.report_text)
-        report_layout.addWidget(report_group)
+        report_layout.addWidget(report_group, 1)  # 设置stretch为1，填满剩余空间
         
         # 添加标签页
         self.tab_widget.addTab(detect_tab, "检测功能")
@@ -1187,6 +1203,9 @@ class YoloV8Interface(QWidget):
         self.refresh_data()
         self.refresh_visualization()
         self.refresh_batches()
+        
+        # 设置图表滚轮缩放
+        self.setup_chart_zoom()
 
     # ---------- 新增：模型路径选择方法 ----------
     def choose_model(self):
@@ -1774,6 +1793,10 @@ class YoloV8Interface(QWidget):
         
         if self.cb_batch.count() == 0:
             self.cb_batch.addItem("暂无检测批次", None)
+        
+        # 禁用导出按钮
+        self.btn_export_report.setEnabled(False)
+        self.btn_export_word.setEnabled(False)
     
     def generate_report(self):
         """生成检测报告"""
@@ -1789,6 +1812,7 @@ class YoloV8Interface(QWidget):
         # 显示报告
         self.report_text.setPlainText(report_content)
         self.btn_export_report.setEnabled(True)
+        self.btn_export_word.setEnabled(True)
         QMessageBox.information(self, "提示", "报告生成成功！")
     
     def create_report_content(self, batch_data):
@@ -1949,6 +1973,134 @@ class YoloV8Interface(QWidget):
             report_lines.append(f"    无缺陷数据")
         report_lines.append("")
         
+        # ---------------------- 数据特点 ----------------------
+        report_lines.append("【数据特点】")
+        report_lines.append("-" * 60)
+        
+        # 数据特点1: 缺陷密度特征
+        report_lines.append("  1. 缺陷密度特征")
+        if total_images > 0:
+            defect_density = total_defects / total_images
+            if defect_density == 0:
+                report_lines.append("     ✓ 零缺陷密度 - 产品质量优异，生产过程控制良好")
+            elif defect_density < 1:
+                report_lines.append(f"     ✓ 低缺陷密度 ({defect_density:.2f}个/张) - 缺陷稀少，质量水平较高")
+            elif defect_density < 3:
+                report_lines.append(f"     ! 中等缺陷密度 ({defect_density:.2f}个/张) - 存在少量缺陷，需关注")
+            elif defect_density < 5:
+                report_lines.append(f"     ✗ 高缺陷密度 ({defect_density:.2f}个/张) - 缺陷较多，需要改进")
+            else:
+                report_lines.append(f"     ✗ 极高缺陷密度 ({defect_density:.2f}个/张) - 质量问题严重，需紧急处理")
+        report_lines.append("")
+        
+        # 数据特点2: 缺陷一致性特征
+        report_lines.append("  2. 缺陷一致性特征")
+        if all_details:
+            defect_counts_per_image = [result['total_defects'] for result in batch_data]
+            if len(defect_counts_per_image) > 1:
+                defect_std = np.std(defect_counts_per_image)
+                defect_cv = (defect_std / np.mean(defect_counts_per_image) * 100) if np.mean(defect_counts_per_image) > 0 else 0
+                
+                if defect_cv < 30:
+                    report_lines.append(f"     ✓ 缺陷分布均匀 (变异系数: {defect_cv:.1f}%) - 生产稳定性好")
+                elif defect_cv < 60:
+                    report_lines.append(f"     ! 缺陷分布有一定波动 (变异系数: {defect_cv:.1f}%) - 生产过程存在波动")
+                else:
+                    report_lines.append(f"     ✗ 缺陷分布不稳定 (变异系数: {defect_cv:.1f}%) - 生产一致性差")
+        report_lines.append("")
+        
+        # 数据特点3: 缺陷类型特征
+        report_lines.append("  3. 缺陷类型特征")
+        if all_details:
+            class_names = [d['class_name'] for d in all_details]
+            unique_classes = list(set(class_names))
+            
+            if len(unique_classes) == 0:
+                report_lines.append("     无缺陷数据")
+            elif len(unique_classes) == 1:
+                report_lines.append(f"     ✓ 单一缺陷类型 ({unique_classes[0]}) - 问题集中，便于针对性解决")
+            elif len(unique_classes) <= 3:
+                report_lines.append(f"     ! 少量缺陷类型 ({len(unique_classes)}种: {', '.join(unique_classes)}) - 需要多方面关注")
+            else:
+                report_lines.append(f"     ✗ 多样化缺陷类型 ({len(unique_classes)}种) - 问题复杂，需全面排查")
+        report_lines.append("")
+        
+        # ---------------------- 注意事项 ----------------------
+        report_lines.append("【注意事项】")
+        report_lines.append("-" * 60)
+        
+        # 注意事项1: 质量控制重点
+        report_lines.append("  1. 质量控制重点")
+        if yield_rate < 70:
+            report_lines.append("     ⚠ 良品率过低，必须立即采取以下措施:")
+            report_lines.append("       - 暂停生产，进行全面质量检查")
+            report_lines.append("       - 检查原材料质量，排除材料问题")
+            report_lines.append("       - 校准检测设备，确保检测准确性")
+            report_lines.append("       - 培训操作人员，提高操作规范性")
+        elif yield_rate < 85:
+            report_lines.append("     ⚠ 良品率偏低，建议采取以下措施:")
+            report_lines.append("       - 加强生产过程监控，及时发现异常")
+            report_lines.append("       - 对不合格品进行详细分析，找出根本原因")
+            report_lines.append("       - 优化工艺参数，提高产品一致性")
+        elif yield_rate < 95:
+            report_lines.append("     ✓ 良品率良好，建议:")
+            report_lines.append("       - 保持当前质量控制水平")
+            report_lines.append("       - 定期进行质量审核，防止质量下降")
+            report_lines.append("       - 持续改进，向更高良品率目标努力")
+        else:
+            report_lines.append("     ✓ 良品率优秀，建议:")
+            report_lines.append("       - 总结优秀经验，形成标准作业流程")
+            report_lines.append("       - 向其他生产线推广成功经验")
+        report_lines.append("")
+        
+        # 注意事项2: 缺陷风险提示
+        report_lines.append("  2. 缺陷风险提示")
+        if all_details:
+            high_conf_defects = [d for d in all_details if d['confidence'] >= 0.8]
+            if len(high_conf_defects) > 0:
+                high_conf_ratio = len(high_conf_defects) / len(all_details) * 100
+                if high_conf_ratio > 70:
+                    report_lines.append(f"     ⚠ 高置信度缺陷占比高 ({high_conf_ratio:.1f}%)，真实缺陷风险大")
+                    report_lines.append("       - 必须对所有高置信度缺陷进行人工复核")
+                    report_lines.append("       - 分析缺陷产生原因，制定预防措施")
+                    report_lines.append("       - 考虑增加检测频次，及时发现新缺陷")
+                else:
+                    report_lines.append(f"     ! 存在 {len(high_conf_defects)} 个高置信度缺陷，需要关注")
+                    report_lines.append("       - 对高置信度缺陷进行重点检查")
+                    report_lines.append("       - 分析缺陷分布规律，优化检测策略")
+            
+            # 检查是否有集中区域
+            if len(all_details) >= 3:
+                x_coords = [d['center_x'] for d in all_details]
+                y_coords = [d['center_y'] for d in all_details]
+                x_std = np.std(x_coords)
+                y_std = np.std(y_coords)
+                
+                if x_std < 300 and y_std < 300:
+                    report_lines.append("     ⚠ 缺陷高度集中，可能存在系统性问题")
+                    report_lines.append("       - 检查特定工艺环节是否存在问题")
+                    report_lines.append("       - 分析缺陷集中区域的工艺参数")
+                    report_lines.append("       - 考虑调整设备或工艺流程")
+        else:
+            report_lines.append("     ✓ 无缺陷风险")
+        report_lines.append("")
+        
+        # 注意事项3: 后续行动建议
+        report_lines.append("  3. 后续行动建议")
+        if fail_count > 0:
+            report_lines.append(f"     ⚠ 发现 {fail_count} 个不合格品，需要:")
+            report_lines.append("       1. 立即隔离不合格品，防止流入下一环节")
+            report_lines.append("       2. 对不合格品进行详细检测和分析")
+            report_lines.append("       3. 制定返工或报废处理方案")
+            report_lines.append("       4. 记录缺陷信息，建立缺陷数据库")
+            report_lines.append("       5. 定期回顾缺陷数据，监控质量趋势")
+        else:
+            report_lines.append("     ✓ 无不合格品，建议:")
+            report_lines.append("       1. 继续保持当前质量水平")
+            report_lines.append("       2. 定期进行质量统计和分析")
+            report_lines.append("       3. 建立质量预警机制，预防质量下降")
+        report_lines.append("")
+        
         # ---------------------- 数据结论 ----------------------
         report_lines.append("【数据结论】")
         report_lines.append("-" * 60)
@@ -2067,6 +2219,27 @@ class YoloV8Interface(QWidget):
         
         return "\n".join(report_lines)
     
+    def export_word(self):
+        """导出报告为 Word 文档"""
+        report_content = self.report_text.toPlainText()
+        if not report_content:
+            QMessageBox.warning(self, "提示", "请先生成报告")
+            return
+        
+        # 选择保存路径
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存 Word 报告", "", "Word 文档 (*.docx)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            self.export_word_report(report_content, file_path)
+            QMessageBox.information(self, "导出成功", f"Word 报告已保存到:\n{file_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", f"保存 Word 文件时出错：{str(e)}")
+    
     def export_report(self):
         """导出报告为文件"""
         report_content = self.report_text.toPlainText()
@@ -2076,7 +2249,7 @@ class YoloV8Interface(QWidget):
         
         # 选择保存路径
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "保存报告", "", "文本文件 (*.txt);;HTML文件 (*.html)"
+            self, "保存报告", "", "文本文件 (*.txt);;HTML 文件 (*.html);;Word 文档 (*.docx)"
         )
         
         if not file_path:
@@ -2084,10 +2257,13 @@ class YoloV8Interface(QWidget):
         
         try:
             if file_path.endswith('.html'):
-                # 导出为HTML格式
+                # 导出为 HTML 格式
                 html_content = self.create_html_report(report_content)
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(html_content)
+            elif file_path.endswith('.docx'):
+                # 导出为 Word 格式
+                self.export_word_report(report_content, file_path)
             else:
                 # 导出为文本格式
                 with open(file_path, 'w', encoding='utf-8') as f:
@@ -2097,8 +2273,119 @@ class YoloV8Interface(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "导出失败", f"保存文件时出错：{str(e)}")
     
+    def export_word_report(self, report_content, file_path):
+        """导出报告为 Word 文档"""
+        try:
+            from docx import Document
+            from docx.shared import Pt, Inches
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx.oxml.ns import qn
+            
+            # 创建文档
+            doc = Document()
+            
+            # 设置文档样式
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = '微软雅黑'
+            font.size = Pt(12)
+            style._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+            
+            # 添加标题
+            title = doc.add_heading('电路板漏铜检测报告', level=0)
+            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            title_run = title.runs[0]
+            title_run.font.name = '微软雅黑'
+            title_run.font.size = Pt(18)
+            title_run.font.bold = True
+            title_run._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+            
+            # 添加副标题
+            subtitle = doc.add_paragraph('Circuit Board Copper Leakage Inspection Report')
+            subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            subtitle_run = subtitle.runs[0]
+            subtitle_run.font.name = 'Arial'
+            subtitle_run.font.size = Pt(12)
+            subtitle_run.font.italic = True
+            
+            # 添加报告时间
+            time_para = doc.add_paragraph()
+            time_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            time_run = time_para.add_run(f'报告生成时间：{time.strftime("%Y-%m-%d %H:%M:%S")}')
+            time_run.font.size = Pt(10)
+            
+            doc.add_paragraph()  # 空行
+            
+            # 解析报告内容
+            lines = report_content.split('\n')
+            current_section = None
+            current_subsection = None
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 检测大标题（如【执行摘要】）
+                if line.startswith('【') and line.endswith('】'):
+                    section_title = line[1:-1]
+                    heading = doc.add_heading(section_title, level=1)
+                    heading_run = heading.runs[0]
+                    heading_run.font.name = '微软雅黑'
+                    heading_run.font.size = Pt(14)
+                    heading_run.font.bold = True
+                    heading_run._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+                    current_section = section_title
+                    current_subsection = None
+                
+                # 检测小标题（如 1. 缺陷密度特征）
+                elif line.startswith('  ') and ('.' in line or ':' in line) and not line.startswith('    '):
+                    subsection_title = line.strip()
+                    para = doc.add_paragraph()
+                    sub_run = para.add_run(subsection_title)
+                    sub_run.font.name = '微软雅黑'
+                    sub_run.font.size = Pt(13)
+                    sub_run.font.bold = True
+                    sub_run._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+                    current_subsection = subsection_title
+                
+                # 检测内容行
+                elif line.startswith('    ') or line.startswith('      '):
+                    content = line.strip()
+                    if content:
+                        para = doc.add_paragraph()
+                        para.paragraph_format.left_indent = Inches(0.5)
+                        content_run = para.add_run(content)
+                        content_run.font.name = '微软雅黑'
+                        content_run.font.size = Pt(11)
+                        content_run._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+                
+                # 其他内容
+                else:
+                    if line and not line.startswith('='):
+                        para = doc.add_paragraph(line)
+                        para_run = para.runs[0]
+                        para_run.font.name = '微软雅黑'
+                        para_run.font.size = Pt(11)
+                        para_run._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+            
+            # 添加页脚
+            footer_para = doc.add_paragraph()
+            footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            footer_run = footer_para.add_run(f'\n--- 报告结束 ---\n电路板漏铜检测系统')
+            footer_run.font.size = Pt(9)
+            footer_run.font.italic = True
+            
+            # 保存文档
+            doc.save(file_path)
+            
+        except ImportError:
+            raise Exception("未安装 python-docx 库，请运行：pip install python-docx")
+        except Exception as e:
+            raise Exception(f"导出 Word 失败：{str(e)}")
+    
     def create_html_report(self, text_content):
-        """将文本报告转换为HTML格式"""
+        """将文本报告转换为 HTML 格式"""
         html_template = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2266,6 +2553,52 @@ class YoloV8Interface(QWidget):
         )
         
         return html_content
+    
+    def eventFilter(self, obj, event):
+        """事件过滤器 - 处理报告预览的滚轮缩放"""
+        if obj == self.report_text and event.type() == event.Wheel:
+            # 检查是否按住Ctrl键
+            if event.modifiers() == Qt.ControlModifier:
+                delta = event.angleDelta().y()
+                if delta > 0:
+                    # 放大
+                    self.report_font_size = min(self.report_font_size + 1, 24)
+                else:
+                    # 缩小
+                    self.report_font_size = max(self.report_font_size - 1, 10)
+                
+                # 更新字体大小
+                font = self.report_text.font()
+                font.setPointSize(self.report_font_size)
+                self.report_text.setFont(font)
+                return True  # 拦截事件，不传递给父控件
+        
+        return False  # 不拦截其他事件
+    
+    def setup_chart_zoom(self):
+        """为数据可视化图表添加滚轮缩放功能"""
+        # 为缺陷数量统计图添加滚轮缩放
+        self.defect_count_canvas.mpl_connect('scroll_event', lambda event: self.on_chart_zoom(event, self.defect_count_ax))
+        
+        # 为良品率饼图添加滚轮缩放
+        self.yield_pie_canvas.mpl_connect('scroll_event', lambda event: self.on_chart_zoom(event, self.yield_pie_ax))
+        
+        # 为缺陷分布散点图添加滚轮缩放
+        self.defect_dist_canvas.mpl_connect('scroll_event', lambda event: self.on_chart_zoom(event, self.defect_dist_ax))
+    
+    def on_chart_zoom(self, event, ax):
+        """图表滚轮缩放处理"""
+        if event.button == 'up':
+            # 放大
+            ax.set_xlim(ax.get_xlim()[0] * 0.9, ax.get_xlim()[1] * 0.9)
+            ax.set_ylim(ax.get_ylim()[0] * 0.9, ax.get_ylim()[1] * 0.9)
+        elif event.button == 'down':
+            # 缩小
+            ax.set_xlim(ax.get_xlim()[0] * 1.1, ax.get_xlim()[1] * 1.1)
+            ax.set_ylim(ax.get_ylim()[0] * 1.1, ax.get_ylim()[1] * 1.1)
+        
+        # 重新绘制图表
+        ax.figure.canvas.draw()
     
     def logout(self):
         """退出登录"""
